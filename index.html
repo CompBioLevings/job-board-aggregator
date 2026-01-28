@@ -37,14 +37,17 @@
                                 <label for="filter-title" class="form-label">Job Title</label>
                                 <input type="text" id="filter-title" class="form-control"
                                     placeholder="e.g., Software Engineer">
+                                <small class="text-muted">Use | for OR (e.g., "data | computational | bioinformatician | bioinformatics | stat | programming")</small>
                             </div>
                             <div class="col-12 col-md-6">
                                 <label for="filter-company" class="form-label">Company</label>
                                 <input type="text" id="filter-company" class="form-control" placeholder="e.g., Google">
+                                <small class="text-muted">Use | for OR (e.g., "Google | Microsoft")</small>
                             </div>
                             <div class="col-12 col-md-6">
                                 <label for="filter-location" class="form-label">Location</label>
                                 <input type="text" id="filter-location" class="form-control" placeholder="e.g., Remote">
+                                <small class="text-muted">Use | for OR (e.g., "Remote | New York")</small>
                             </div>
                             <div class="col-12 col-md-6">
                                 <label for="filter-status" class="form-label">Status</label>
@@ -53,17 +56,6 @@
                                     <option value="saved">Saved</option>
                                     <option value="applied">Applied</option>
                                     <option value="ignored">Ignored</option>
-                                </select>
-                            </div>
-                            <div class="col-12 col-md-6">
-                                <label for="filter-ats" class="form-label">ATS</label>
-                                <select id="filter-ats" class="form-select">
-                                    <option value="">All ATS</option>
-                                    <option value="Ashby">Ashby</option>
-                                    <option value="Bamboohr">BambooHR</option>
-                                    <option value="Greenhouse">Greenhouse</option>
-                                    <option value="Lever">Lever</option>
-                                    <option value="Workday">Workday</option>
                                 </select>
                             </div>
                             <div class="col-12">
@@ -137,6 +129,7 @@
                                 <th>Company</th>
                                 <th>Title</th>
                                 <th>Location</th>
+                                <th>Updated</th>
                                 <th>ATS</th>
                                 <th>Apply</th>
                                 <th>Actions</th>
@@ -144,7 +137,7 @@
                         </thead>
                         <tbody id="jobs-body">
                             <tr>
-                                <td colspan="7" class="text-center">No jobs found</td>
+                                <td colspan="8" class="text-center">No jobs found</td>
                             </tr>
                         </tbody>
                     </table>
@@ -199,7 +192,7 @@
                         </svg>
                         LinkedIn
                     </a>
-                    <a href="mailto:rwdorrington@gmail.com" class="text-decoration-none">
+                    <a href="/cdn-cgi/l/email-protection#f18386959e8383989f96859e9fb1969c90989ddf929e9c" class="text-decoration-none">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor"
                             viewBox="0 0 16 16" style="vertical-align: middle;">
                             <path
@@ -240,9 +233,4 @@
                 <path
                     d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z" />
             </svg>
-        </button>
-    </div>
-
-</body>
-
-</html>
+ 

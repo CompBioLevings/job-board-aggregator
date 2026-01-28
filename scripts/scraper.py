@@ -6,9 +6,10 @@ import re
 import os
 import gzip
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
+from typing import Optional, List, Dict, Any, Set
 
 # ============================================================
 # CONFIGURATION
@@ -21,8 +22,6 @@ ASHBY_FILE = os.path.join(ROOT_DIR, "data", "ashby_companies.json")
 BAMBOOHR_FILE = os.path.join(ROOT_DIR, "data", "bamboohr_companies.json")
 WORKDAY_FILE = os.path.join(ROOT_DIR, "data", "workday_companies.json")
 LEVER_FILE = os.path.join(ROOT_DIR, "data", "lever_companies.json")
-
-ICIMS_FILE = os.path.join(ROOT_DIR, "data", "icims_companies.json")
 
 OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -68,7 +67,6 @@ USER_AGENTS = [
 # LOAD COMPANIES
 # ============================================================
 
-
 def load_companies(filepath):
     """Load companies from JSON file."""
     try:
@@ -108,14 +106,12 @@ fetch("https://{slug}.bamboohr.com/careers/list"){
 
 SOURCE_TYPE = "automated"
 
-
 def get_job_metadata():
     """Generate consistent metadata for each job."""
     return {
         "scraped_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "source": SOURCE_TYPE,
+        "source": SOURCE_TYPE
     }
-
 
 def fetch_company_jobs_greenhouse(slug):
     """Fetch all jobs for a company."""
@@ -131,6 +127,10 @@ def fetch_company_jobs_greenhouse(slug):
                 # Normalize job structure for frontend
                 normalized = []
                 for job in jobs:
+                    # Get location and filter
+                    location = job.get("location", {}).get("name", "Not specified")
+                    if not is_valid_location(location):
+                        continue
                     normalized.append(
                         {
                             "company": slug,
@@ -148,7 +148,7 @@ def fetch_company_jobs_greenhouse(slug):
                             "updated_at": job.get("updated_at"),
                             "is_recruiter": is_recruiter_company(slug),
                             "ats": "Greenhouse",
-                            **get_job_metadata(),
+                            **get_job_metadata()
                         }
                     )
 
@@ -184,6 +184,9 @@ def fetch_company_jobs_ashby(slug):
             if jobs:
                 normalized = []
                 for job in jobs:
+                    location = job.get("locationName", "Not specified")
+                    if not is_valid_location(location):
+                        continue
                     normalized.append(
                         {
                             "company": slug,
@@ -193,7 +196,7 @@ def fetch_company_jobs_ashby(slug):
                             "url": f"https://jobs.ashbyhq.com/{slug}/jobs/{job.get('id')}",
                             "is_recruiter": is_recruiter_company(slug),
                             "ats": "Ashby",
-                            **get_job_metadata(),
+                            **get_job_metadata()
                         }
                     )
                 return slug, normalized
@@ -219,16 +222,21 @@ def fetch_company_jobs_bamboohr(slug):
             if jobs:
                 normalized = []
                 for job in jobs:
+                    location = job.get("location", "Not specified")
+                    if location != "Not specified":
+                        location = location['city'] + ', ' + location['state']
+                    if not is_valid_location(location):
+                        continue
                     normalized.append(
                         {
                             "company": slug,
                             "company_slug": slug,
                             "title": job.get("jobOpeningName"),
-                            "location": job.get("location", "Not specified")[:50],
+                            "location": location,
                             "url": f"https://{slug}.bamboohr.com/careers/view/{job.get('id')}",
                             "is_recruiter": is_recruiter_company(slug),
                             "ats": "BambooHR",
-                            **get_job_metadata(),
+                            **get_job_metadata()
                         }
                     )
                 return slug, normalized
@@ -251,18 +259,23 @@ def fetch_company_jobs_lever(slug):
                 normalized = []
                 for job in jobs:
                     categories = job.get("categories", {})
+                    location = categories.get("location", "Not specified")
+                    if not is_valid_location(location):
+                        continue
+                    # Get corrected date
+                    posted_on = job.get("createdAt")
+                    posted_on_parsed = parse_unix_timestamp(posted_on)
                     normalized.append(
                         {
                             "company": slug,
                             "company_slug": slug,
                             "title": job.get("text"),
-                            "location": categories.get("location", "Not specified")[
-                                :50
-                            ],
+                            "location": categories.get("location", "Not specified") [:50],
                             "url": job.get("hostedUrl"),
+                            "updated_at": posted_on_parsed,
                             "is_recruiter": is_recruiter_company(slug),
                             "ats": "Lever",
-                            **get_job_metadata(),
+                            **get_job_metadata()
                         }
                     )
                 return slug, normalized
@@ -286,6 +299,7 @@ def fetch_company_jobs_workday(slug):
         wd_num = wd.replace("wd", "")
 
         base_url = f"https://{company}.wd{wd_num}.myworkdayjobs.com"
+        career_url = f"https://{company}.wd{wd_num}.myworkdayjobs.com/{site_id}"
         api_url = f"{base_url}/wday/cxs/{company}/{site_id}/jobs"
 
         headers = {
@@ -341,19 +355,28 @@ def fetch_company_jobs_workday(slug):
 
             for job in jobs:
                 job_path = job.get("externalPath", "")
+                # Get corrected date
+                posted_on = job.get("postedOn")
+                posted_on_parsed = parse_relative_date(posted_on)
+                # Get location and filter
+                location = job.get("locationsText", "Not specified")
+                if not is_valid_location(location):
+                    continue
                 normalized.append(
                     {
                         "company": company,
                         "company_slug": slug,
                         "title": job.get("title"),
-                        "location": job.get("locationsText", "Not specified")[:50],
-                        "url": f"{base_url}{job_path}",
+                        "location": job.get("locationsText", "Not specified") [:50],
+                        "url": f"{career_url}{job_path}",
+                        "updated_at": posted_on_parsed,
                         "is_recruiter": is_recruiter_company(company),
                         "ats": "Workday",
-                        **get_job_metadata(),
+                        **get_job_metadata()
                     }
                 )
-
+            # List possible queries from job
+            
             offset += limit
 
             if offset >= total:
@@ -366,14 +389,6 @@ def fetch_company_jobs_workday(slug):
 
     except Exception:
         return slug, []
-
-
-def fetch_company_jobs_icims(slug):
-
-    # URL: https://careers-{company}.icims.com/jobs/search?ss
-
-    return slug, []
-
 
 def fetch_all_jobs(companies, fetcher, platform="ATS"):
     """Fetch jobs from all companies in parallel."""
@@ -413,7 +428,6 @@ def fetch_all_jobs(companies, fetcher, platform="ATS"):
 # Helper Functions
 # ============================================================
 
-
 def is_recruiter_company(slug):
     slug = slug.lower()
 
@@ -423,6 +437,274 @@ def is_recruiter_company(slug):
 
     return False
 
+# Function to convert job date to absolute datatime
+def parse_relative_date(date_string: str) -> Optional[str]:
+    """
+    Convert relative date strings to ISO 8601 format.
+    
+    Handles formats like "Posted Today", "Posted Yesterday", "Posted 2 days ago", etc.
+    
+    Args:
+        date_string (str): The relative date string to parse
+        
+    Returns:
+        Optional[str]: ISO 8601 formatted date string (e.g., "2026-01-23T16:58:55-05:00") 
+                       or None if invalid
+    
+    Examples:
+        >>> parse_relative_date("Posted Today")
+        '2026-01-28T16:58:55-05:00'
+        
+        >>> parse_relative_date("Posted 2 days ago")
+        '2026-01-26T16:58:55-05:00'
+        
+        >>> parse_relative_date("3 weeks ago")
+        '2026-01-07T16:58:55-05:00'
+    """
+    if not date_string or not isinstance(date_string, str):
+        return None
+    
+    # Normalize the string: trim and convert to lowercase
+    normalized = date_string.strip().lower()
+    
+    # Current date/time
+    now = datetime.now()
+    target_date = now
+    
+    # Case-insensitive matching for different formats
+    if 'today' in normalized or normalized == 'just now' or 'just posted' in normalized:
+        # Today - keep current date
+        target_date = now
+    
+    elif 'yesterday' in normalized:
+        # Yesterday
+        target_date = now - timedelta(days=1)
+    
+    elif re.search(r'(\d+)\s*(day|days)', normalized, re.IGNORECASE):
+        # "X days ago" or "Posted X days ago"
+        match = re.search(r'(\d+)\s*(day|days)', normalized, re.IGNORECASE)
+        days = int(match.group(1))
+        target_date = now - timedelta(days=days)
+    
+    elif re.search(r'(30)\+\s*(day|days)', normalized, re.IGNORECASE):
+        # "30+ days ago" or "Posted 30+ days ago"
+        match = re.search(r'(30)\+\s*(day|days)', normalized, re.IGNORECASE)
+        days = int(match.group(1))
+        target_date = now - timedelta(days=days+1)
+    
+    elif re.search(r'(\d+)\s*(week|weeks)', normalized, re.IGNORECASE):
+        # "X weeks ago" or "Posted X weeks ago"
+        match = re.search(r'(\d+)\s*(week|weeks)', normalized, re.IGNORECASE)
+        weeks = int(match.group(1))
+        target_date = now - timedelta(weeks=weeks)
+    
+    elif re.search(r'(\d+)\s*(month|months)', normalized, re.IGNORECASE):
+        # "X months ago" or "Posted X months ago"
+        match = re.search(r'(\d+)\s*(month|months)', normalized, re.IGNORECASE)
+        months = int(match.group(1))
+        # Approximate month as 30 days for simplicity
+        # For more accurate calculation, you might want to use dateutil.relativedelta
+        target_date = now - timedelta(days=months * 30)
+    
+    elif re.search(r'(\d+)\s*(year|years)', normalized, re.IGNORECASE):
+        # "X years ago" or "Posted X years ago"
+        match = re.search(r'(\d+)\s*(year|years)', normalized, re.IGNORECASE)
+        years = int(match.group(1))
+        target_date = now - timedelta(days=years * 365)
+    
+    elif re.search(r'(\d+)\s*(hour|hours)', normalized, re.IGNORECASE):
+        # "X hours ago"
+        match = re.search(r'(\d+)\s*(hour|hours)', normalized, re.IGNORECASE)
+        hours = int(match.group(1))
+        target_date = now - timedelta(hours=hours)
+    
+    elif re.search(r'(\d+)\s*(minute|minutes|min|mins)', normalized, re.IGNORECASE):
+        # "X minutes ago"
+        match = re.search(r'(\d+)\s*(minute|minutes|min|mins)', normalized, re.IGNORECASE)
+        minutes = int(match.group(1))
+        target_date = now - timedelta(minutes=minutes)
+    
+    else:
+        # If we can't parse it as a relative date, try parsing it as a standard date
+        try:
+            target_date = datetime.fromisoformat(date_string.replace('Z', '+00:00'))
+        except (ValueError, AttributeError):
+            # Unable to parse
+            return None
+    
+    # Return in ISO 8601 format with timezone offset
+    return target_date.astimezone().isoformat()
+
+# Now for parsing Unix timestamps
+def parse_unix_timestamp(timestamp: int) -> Optional[str]:
+    """
+    Convert Unix timestamp in milliseconds to ISO 8601 format.
+    
+    Args:
+        timestamp (int): Unix timestamp in milliseconds since epoch (January 1, 1970, 00:00:00 UTC)
+        
+    Returns:
+        Optional[str]: ISO 8601 formatted date string (e.g., "2025-01-09T06:10:18-05:00") 
+                       or None if invalid
+    
+    Examples:
+        >>> parse_unix_timestamp(1767999818020)
+        '2025-01-09T06:10:18-05:00'
+        
+        >>> parse_unix_timestamp(1609459200000)
+        '2021-01-01T00:00:00-05:00'
+    """
+    if not timestamp or not isinstance(timestamp, int):
+        return None
+    
+    try:
+        # Convert milliseconds to seconds
+        dt = datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc)
+        
+        # Convert to local timezone
+        dt_local = dt.astimezone()
+        
+        # Return in ISO 8601 format with timezone offset
+        return dt_local.isoformat()
+    
+    except (ValueError, OSError, OverflowError):
+        # Invalid timestamp
+        return None
+
+# Some functions for filtering to only include jobs in US, Canada, Denmark, Norway, Sweden
+def get_us_location_patterns() -> Set[str]:
+    """
+    Get a comprehensive set of US location patterns including:
+    - Country names (US, USA, United States)
+    - All 50 state names (full and abbreviated)
+    - Common variations
+    - some additional patterns for Canada and other towns I've identified
+    
+    Returns:
+        Set[str]: Set of lowercase location patterns for the US
+    """
+    us_patterns = {
+        # Country identifiers
+        'us', 'usa', 'u.s.', 'u.s.a.', 'united states', 'united states of america',
+        
+        # State abbreviations
+        'al', 'ak', 'az', 'ar', 'ca', 'co', 'ct', 'de', 'fl', 'ga',
+        'hi', 'id', 'il', 'in', 'ia', 'ks', 'ky', 'la', 'me', 'md',
+        'ma', 'mi', 'mn', 'ms', 'mo', 'mt', 'ne', 'nv', 'nh', 'nj',
+        'nm', 'ny', 'nc', 'nd', 'oh', 'ok', 'or', 'pa', 'ri', 'sc',
+        'sd', 'tn', 'tx', 'ut', 'vt', 'va', 'wa', 'wv', 'wi', 'wy',
+        
+        # Full state names
+        'alabama', 'alaska', 'arizona', 'arkansas', 'california', 'colorado',
+        'connecticut', 'delaware', 'florida', 'georgia', 'hawaii', 'idaho',
+        'illinois', 'indiana', 'iowa', 'kansas', 'kentucky', 'louisiana',
+        'maine', 'maryland', 'massachusetts', 'michigan', 'minnesota',
+        'mississippi', 'missouri', 'montana', 'nebraska', 'nevada',
+        'new hampshire', 'new jersey', 'new mexico', 'new york',
+        'north carolina', 'north dakota', 'ohio', 'oklahoma', 'oregon',
+        'pennsylvania', 'rhode island', 'south carolina', 'south dakota',
+        'tennessee', 'texas', 'utah', 'vermont', 'virginia', 'washington',
+        'west virginia', 'wisconsin', 'wyoming',
+        
+        # Territories
+        'puerto rico', 'pr', 'guam', 'gu', 'virgin islands', 'vi',
+        'american samoa', 'as', 'northern mariana islands', 'mp',
+        
+        # Common US city patterns (helps catch "Boston, MA" style entries)
+        # We'll rely on state matching primarily, but include "remote" variants
+        'remote, us', 'remote - us', 'remote (us)', 'remote usa',
+        'united states remote', 'us remote', 'usa remote',
+        
+        # Now for variations with multiple locations or custom cities
+        'locations', 'tarrytown', 'new york city', 'nyc', 'san francisco',
+        'los angeles', 'chicago', 'boston', 'seattle', 'atlanta',
+        'miami', 'dallas', 'houston', 'denver', 'washington dc', 'dc',
+        'philadelphia', 'austin', 'portland', 'san diego', 'detroit',
+        'minneapolis', 'st. paul',  'st paul', 'orlando', 'salt lake city',
+        'raleigh', 'charlotte', 'pittsburgh', 'cincinnati', 'columbus',
+        'indianapolis', 'nashville', 'richmond', 'sacramento', 'san jose',
+        'baltimore', 'milwaukee', 'jacksonville', 'memphis', 'oklahoma city',
+        'las vegas', 'albuquerque',
+        
+        # Also patterns for Canada
+        'canada', 'ca', 'canadian', 'toronto', 'vancouver', 'montreal',
+        'calgary', 'ottawa', 'edmonton', 'quebec', 'winnipeg', 'hamilton',
+        'kitchener', 'london', 'halifax', 'waterloo', 'saskatchewan', 'nova scotia',
+        'newfoundland', 'new brunswick', 'prince edward island', 'pei'
+        
+        # one last one for ones that don't specify location (just in case)
+        'not specified'
+    }
+    
+    return us_patterns
+
+
+def get_nordic_location_patterns() -> Set[str]:
+    """
+    Get location patterns for Denmark, Norway, and Sweden.
+    
+    Returns:
+        Set[str]: Set of lowercase location patterns for Nordic countries
+    """
+    nordic_patterns = {
+        # Denmark
+        'denmark', 'dk', 'danish', 'copenhagen', 'aarhus', 'odense', 'aalborg',
+        
+        # Norway
+        'norway', 'no', 'norwegian', 'oslo', 'bergen', 'trondheim', 'stavanger',
+        
+        # Sweden
+        'sweden', 'se', 'swedish', 'stockholm', 'gothenburg', 'göteborg',
+        'malmö', 'malmo', 'uppsala', 'västerås', 'vasteras',
+    }
+    
+    return nordic_patterns
+
+
+def is_valid_location(location: str) -> bool:
+    """
+    Check if a location string matches US, Canada, Denmark, Norway, or Sweden.
+    
+    Args:
+        location (str): Location string from job posting
+        
+    Returns:
+        bool: True if location is in target countries, False otherwise
+    """
+    if not location or not isinstance(location, str):
+        return False
+    
+    # Normalize the location string
+    normalized = location.lower().strip()
+    
+    # Get all valid patterns
+    us_patterns = get_us_location_patterns()
+    nordic_patterns = get_nordic_location_patterns()
+    all_patterns = us_patterns | nordic_patterns
+    
+    # Check for exact matches first (handles "DE", "US", etc.)
+    # Split by common separators and check each part
+    parts = re.split(r'[-,/\s]+', normalized)
+    for part in parts:
+        part = part.strip()
+        if part in all_patterns:
+            return True
+    
+    # Check if any pattern is contained in the location string
+    # This handles formats like "Boston, MA" or "Remote - United States"
+    for pattern in all_patterns:
+        # Use word boundaries for short patterns to avoid false matches
+        if len(pattern) <= 3:
+            # For abbreviations, use word boundary matching
+            pattern_regex = r'\b' + re.escape(pattern) + r'\b'
+            if re.search(pattern_regex, normalized, re.IGNORECASE):
+                return True
+        else:
+            # For longer patterns, simple substring matching is fine
+            if pattern in normalized:
+                return True
+    
+    return False
 
 def clean_job_data(jobs):
     """Remove invalid/useless job entries."""
@@ -560,43 +842,45 @@ def main():
         return
 
     # Fetch from all sources
-    active_greenhouse, jobs_greenhouse = fetch_all_jobs(
-        greenhouse_companies, fetch_company_jobs_greenhouse, "GREENHOUSE"
-    )
-    active_ashby, jobs_ashby = fetch_all_jobs(
-        ashby_companies, fetch_company_jobs_ashby, "ASHBY"
-    )
+    active_greenhouse, jobs_greenhouse = fetch_all_jobs(greenhouse_companies, fetch_company_jobs_greenhouse, "GREENHOUSE")
 
-    (
-        active_bamboohy,
-        jobs_bamboohr,
-    ) = fetch_all_jobs(bamboohr_companies, fetch_company_jobs_bamboohr, "BAMBOOHR")
+    active_workday, jobs_workday = fetch_all_jobs(workday_companies, fetch_company_jobs_workday, "WORKDAY")
 
-    active_lever, jobs_lever = fetch_all_jobs(
-        lever_companies, fetch_company_jobs_lever, "LEVER"
-    )
+    active_bamboohy, jobs_bamboohr = fetch_all_jobs(bamboohr_companies, fetch_company_jobs_bamboohr, "BAMBOOHR")
 
-    active_workday, jobs_workday = fetch_all_jobs(
-        workday_companies, fetch_company_jobs_workday, "WORKDAY"
-    )
+    active_lever, jobs_lever = fetch_all_jobs(lever_companies, fetch_company_jobs_lever, "LEVER")
+
+    active_ashby, jobs_ashby = fetch_all_jobs(ashby_companies, fetch_company_jobs_ashby, "ASHBY")
 
     # Combine results
     all_companies = (
         greenhouse_companies
-        | ashby_companies
+        | workday_companies
         | bamboohr_companies
         | lever_companies
-        | workday_companies
+        | ashby_companies
     )
     all_active_companies = {
         **active_greenhouse,
-        **active_ashby,
+        **active_workday,
         **active_bamboohy,
         **active_lever,
-        **active_workday,
+        **active_ashby
     }
-    all_jobs = jobs_greenhouse + jobs_ashby + jobs_bamboohr + jobs_lever + jobs_workday
-
+    all_jobs_OG = jobs_greenhouse + jobs_ashby + jobs_bamboohr + jobs_lever + jobs_workday
+    all_jobs = []
+    
+    # Filter all_jobs to include only jobs from the last 30 days
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=filter_days)
+    for job in all_jobs_OG:
+        if job['updated_at'] is None:
+            all_jobs.append(job)
+        elif datetime.fromisoformat(job['updated_at'].replace("Z", "+00:00")) >= cutoff_date:
+            all_jobs.append(job)
+        else:
+            pass
+    
+    # Save results
     save_results(all_companies, all_active_companies, all_jobs)
 
     # Final summary
@@ -611,17 +895,19 @@ def main():
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Job Board Aggregator Scraper")
-    parser.add_argument(
-        "--source",
-        choices=["automated", "manual"],
-        default="automated",
-        help="Source type: automated (GitHub Actions) or manual (local run)",
-    )
+    parser = argparse.ArgumentParser(description='Job Board Aggregator Scraper')
+    parser.add_argument('--source', 
+                       choices=['automated', 'manual'], 
+                       default='automated',
+                       help='Source type: automated (GitHub Actions) or manual (local run)')
+    parser.add_argument('--within', 
+                       default=30,
+                       help='What should the date filter be; default=30. (within "30" days)')
 
     args = parser.parse_args()
     SOURCE_TYPE = args.source
-
+    filter_days = int(args.within)
+    
     print(f"\nRunning in {SOURCE_TYPE.upper()} mode\n")
-
+    
     main()
