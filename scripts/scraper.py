@@ -192,7 +192,8 @@ def fetch_company_jobs_ashby(slug):
                             "company": slug,
                             "company_slug": slug,
                             "title": job.get("title", ""),
-                            "location": job.get("locationName", "Not specified")[:50],
+                            "location": location,
+                            "updated_at": None,
                             "url": f"https://jobs.ashbyhq.com/{slug}/jobs/{job.get('id')}",
                             "is_recruiter": is_recruiter_company(slug),
                             "ats": "Ashby",
@@ -233,6 +234,7 @@ def fetch_company_jobs_bamboohr(slug):
                             "company_slug": slug,
                             "title": job.get("jobOpeningName"),
                             "location": location,
+                            "updated_at": None,
                             "url": f"https://{slug}.bamboohr.com/careers/view/{job.get('id')}",
                             "is_recruiter": is_recruiter_company(slug),
                             "ats": "BambooHR",
@@ -612,8 +614,8 @@ def get_us_location_patterns() -> Set[str]:
         
         # Common US city patterns (helps catch "Boston, MA" style entries)
         # We'll rely on state matching primarily, but include "remote" variants
-        'remote, us', 'remote - us', 'remote (us)', 'remote usa',
-        'united states remote', 'us remote', 'usa remote',
+        'remote, us', 'remote - us', 'remote (us)', 'remote usa', 'remote us',
+        'us_remote', 'remote_us', 'united states remote', 'us remote', 'usa remote',
         
         # Now for variations with multiple locations or custom cities
         'locations', 'tarrytown', 'new york city', 'nyc', 'san francisco',
