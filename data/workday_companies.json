@@ -22,6 +22,7 @@
   "labcorp|wd1|external",
   "labcorp|wd1|fortrea",
   "lonza|wd3|lonza_careers",
+  "massgeneralbrigham|wd1|MGBExternal",
   "medline|wd5|medline",
   "medtronic|wd1|medtroniccareers",
   "medtronic|wd1|redeploymentmedtroniccareers",
@@ -39,5 +40,6 @@
   "sanofi|wd3|studentprograms",
   "takeda|wd3|external",
   "tempus|wd5|tempus_careers",
+  "vrtx|wd501|vertex_careers",
   "vrtx|wd5|vertex_careers"
 ]

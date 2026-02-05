@@ -21,6 +21,7 @@ GREENHOUSE_FILE = os.path.join(ROOT_DIR, "data", "greenhouse_companies.json")
 ASHBY_FILE = os.path.join(ROOT_DIR, "data", "ashby_companies.json")
 BAMBOOHR_FILE = os.path.join(ROOT_DIR, "data", "bamboohr_companies.json")
 WORKDAY_FILE = os.path.join(ROOT_DIR, "data", "workday_companies.json")
+WORKDAYSITE_FILE = os.path.join(ROOT_DIR, "data", "workdaysite_companies.json")
 LEVER_FILE = os.path.join(ROOT_DIR, "data", "lever_companies.json")
 
 OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output")
@@ -374,6 +375,113 @@ def fetch_company_jobs_workday(slug):
                         "updated_at": posted_on_parsed,
                         "is_recruiter": is_recruiter_company(company),
                         "ats": "Workday",
+                        **get_job_metadata()
+                    }
+                )
+            # List possible queries from job
+            
+            offset += limit
+
+            if offset >= total:
+                break
+
+            # Jitter between pages (critical)
+            time.sleep(random.uniform(0.8, 1.8))
+
+        return slug, normalized
+
+    except Exception:
+        return slug, []
+
+def fetch_company_jobs_workdaysite(slug):
+    """
+    slug format: "company|wd#|site_id" e.g. "upenn|wd1|upenn/careers-at-upenn"
+    
+    url: https://wd{num}.myworkdaysite.com/wday/cxs/{site_id}/jobs
+    """
+
+    try:
+        parts = slug.split("|")
+        if len(parts) != 3:
+            return slug, []
+
+        company, wd, site_id = parts
+        wd_num = wd.replace("wd", "")
+
+        base_url = f"https://wd{wd_num}.myworkdaysite.com"
+        career_url = f"{base_url}/en-US/recruiting/{site_id}"
+        api_url = f"{base_url}/wday/cxs/{site_id}/jobs"
+
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": random.choice(USER_AGENTS),
+            "Origin": base_url,
+            "Referer": f"{base_url}/en-US/recruiting/{site_id}",
+        }
+
+        normalized = []
+        offset = 0
+        limit = 20
+        retries = 0
+        max_retries = 2
+        observed_total = None
+
+        while True:
+            payload = {
+                "appliedFacets": {},
+                "limit": limit,
+                "offset": offset,
+                "searchText": "",
+            }
+
+            response = requests.post(
+                api_url,
+                json=payload,
+                headers=headers,
+                timeout=30,
+            )
+
+            if response.status_code != 200:
+                if retries < max_retries:
+                    retries += 1
+                    time.sleep(random.uniform(2.0, 4.0))
+                    continue
+                break
+
+            data = response.json()
+            jobs = data.get("jobPostings", [])
+            total = data.get("total", 0)
+
+            # Detect silent blocking / truncation
+            if observed_total is None:
+                observed_total = total
+            elif total != observed_total:
+                # Workday sometimes lies mid-pagination when blocking
+                break
+
+            if not jobs:
+                break
+
+            for job in jobs:
+                job_path = job.get("externalPath", "")
+                # Get corrected date
+                posted_on = job.get("postedOn")
+                posted_on_parsed = parse_relative_date(posted_on)
+                # Get location and filter
+                location = job.get("locationsText", "Not specified")
+                if not is_valid_location(location):
+                    continue
+                normalized.append(
+                    {
+                        "company": company,
+                        "company_slug": slug,
+                        "title": job.get("title"),
+                        "location": job.get("locationsText", "Not specified") [:50],
+                        "url": f"{career_url}{job_path}",
+                        "updated_at": posted_on_parsed,
+                        "is_recruiter": is_recruiter_company(company),
+                        "ats": "WorkdaySite",
                         **get_job_metadata()
                     }
                 )
@@ -804,7 +912,7 @@ def save_results(all_companies, active_companies, all_jobs):
         "total_jobs": len(all_jobs),
         "recruiter_jobs": recruiter_jobs,
         "source_type": SOURCE_TYPE,
-        "platforms": "greenhouse_api, ashby_api, bamboohr_api, lever_api, workday_api",
+        "platforms": "greenhouse_api, ashby_api, bamboohr_api, lever_api, workday_api, workdaysite_api",
     }
 
     metadata_file = os.path.join(OUTPUT_DIR, "metadata.json")
@@ -832,13 +940,15 @@ def main():
     bamboohr_companies = load_companies(BAMBOOHR_FILE)
     lever_companies = load_companies(LEVER_FILE)
     workday_companies = load_companies(WORKDAY_FILE)
-
+    workdaysite_companies = load_companies(WORKDAYSITE_FILE)
+    
     if (
         not greenhouse_companies
         and not ashby_companies
         and not bamboohr_companies
         and not lever_companies
         and not workday_companies
+        and not workdaysite_companies
     ):
         print("Exiting - no companies loaded!")
         return
@@ -847,6 +957,8 @@ def main():
     active_greenhouse, jobs_greenhouse = fetch_all_jobs(greenhouse_companies, fetch_company_jobs_greenhouse, "GREENHOUSE")
 
     active_workday, jobs_workday = fetch_all_jobs(workday_companies, fetch_company_jobs_workday, "WORKDAY")
+
+    active_workdaysite, jobs_workdaysite = fetch_all_jobs(workdaysite_companies, fetch_company_jobs_workdaysite, "WORKDAYSITE")
 
     active_bamboohy, jobs_bamboohr = fetch_all_jobs(bamboohr_companies, fetch_company_jobs_bamboohr, "BAMBOOHR")
 
@@ -858,6 +970,7 @@ def main():
     all_companies = (
         greenhouse_companies
         | workday_companies
+        | workdaysite_companies
         | bamboohr_companies
         | lever_companies
         | ashby_companies
@@ -865,11 +978,12 @@ def main():
     all_active_companies = {
         **active_greenhouse,
         **active_workday,
+        **active_workdaysite,
         **active_bamboohy,
         **active_lever,
         **active_ashby
     }
-    all_jobs_OG = jobs_greenhouse + jobs_ashby + jobs_bamboohr + jobs_lever + jobs_workday
+    all_jobs_OG = jobs_greenhouse + jobs_ashby + jobs_bamboohr + jobs_lever + jobs_workday + jobs_workdaysite
     all_jobs = []
     
     # Filter all_jobs to include only jobs from the last 30 days
