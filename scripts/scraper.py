@@ -10,6 +10,7 @@ from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
 from typing import Optional, List, Dict, Any, Set
+from urllib.parse import urljoin, urlparse
 
 # ============================================================
 # CONFIGURATION
@@ -494,6 +495,124 @@ def fetch_company_jobs_workdaysite(slug):
 
             # Jitter between pages (critical)
             time.sleep(random.uniform(0.8, 1.8))
+
+        return slug, normalized
+
+    except Exception:
+        return slug, []
+
+
+def fetch_company_jobs_generic(slug):
+    """
+    Generic scraper for simple career pages that serve HTML job listings.
+
+    - `slug` may be a full URL (preferred) or a hostname/path fragment.
+    - Uses heuristic HTML parsing to find anchors that look like job links and
+      attempts to extract title + location.
+    - Returns (slug, normalized_jobs) to match other fetchers.
+    """
+    try:
+        # Accept full URLs or build a URL from slug
+        if isinstance(slug, str) and slug.startswith("http"):
+            url = slug
+        else:
+            url = f"https://{slug}"
+
+        headers = {
+            "User-Agent": random.choice(USER_AGENTS),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        }
+
+        resp = requests.get(url, headers=headers, timeout=30)
+        if resp.status_code != 200:
+            return slug, []
+
+        html = resp.text
+
+        # Find all anchors; keep text and href
+        anchors = re.findall(r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', html, flags=re.I | re.S)
+
+        seen = set()
+        normalized = []
+
+        for href, inner in anchors:
+            # Clean title text
+            title = re.sub(r'<[^>]+>', '', inner or '').strip()
+            if not title:
+                continue
+
+            # Heuristic: link or title should contain job-related keywords
+            combined = f"{href} {title}".lower()
+            if not re.search(r'job|career|opening|position|role|opportunity|vacancy|apply', combined):
+                continue
+
+            full_url = urljoin(url, href)
+            if full_url in seen:
+                continue
+            seen.add(full_url)
+
+            # Try to find a nearby location string in the HTML around this href.
+            # For each candidate we extract, validate it with `is_valid_location`.
+            loc = None
+            idx = html.find(href)
+            if idx != -1:
+                start = max(0, idx - 100)
+                snippet = html[start: idx + 2000]
+
+                # 1) class containing "location"
+                m = re.search(r'class=[\"\'][^\"\']*location[^\"\']*[\"\'][^>]*>([^<]+)<', snippet, re.I)
+                if m:
+                    cand = m.group(1).strip()
+                    if is_valid_location(cand):
+                        loc = cand
+
+                # 2) data-location attribute
+                if loc is None:
+                    m2 = re.search(r'data-location=[\"\']([^\"\']+)[\"\']', snippet, re.I)
+                    if m2:
+                        cand = m2.group(1).strip()
+                        if is_valid_location(cand):
+                            loc = cand
+
+                # 3) key/value pairs where the key has class 'key' or 'label' and contains 'location',
+                #    and the value element has class 'value'
+                if loc is None:
+                    m_kv = re.search(
+                        r'class=[\"\'][^\"\']*(?:key|label)[^\"\']*location[^\"\']*[\"\'][^>]*>[^<]*<[^>]*>.*?class=[\"\'][^\"\']*value[^\"\']*[\'\"][^>]*>([^<]+)<',
+                        snippet,
+                        re.I | re.S,
+                    )
+                    if m_kv:
+                        cand = m_kv.group(1).strip()
+                        if is_valid_location(cand):
+                            loc = cand
+
+                # 4) City, ST pattern fallback
+                if loc is None:
+                    m3 = re.search(r'([A-Za-z .\-]+,\s*[A-Z]{2})', snippet)
+                    if m3:
+                        cand = m3.group(1).strip()
+                        if is_valid_location(cand):
+                            loc = cand
+
+            # Finalize location: if none of the parsing methods produced a valid location,
+            # set to 'Not specified'. Do NOT skip the job just because an invalid candidate existed.
+            if loc is None:
+                loc = "Not specified"
+
+            normalized.append(
+                {
+                    "company": urlparse(url).netloc,
+                    "company_slug": slug,
+                    "title": title,
+                    "location": loc,
+                    "url": full_url,
+                    "updated_at": None,
+                    "is_recruiter": is_recruiter_company(urlparse(url).netloc),
+                    "ats": "Generic",
+                    **get_job_metadata(),
+                }
+            )
 
         return slug, normalized
 
