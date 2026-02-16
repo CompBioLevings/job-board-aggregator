@@ -392,7 +392,7 @@ def fetch_company_jobs_workday(slug):
             # Jitter between pages (critical)
             time.sleep(random.uniform(0.8, 1.8))
 
-        return slug, normalized
+        return company, normalized
 
     except Exception:
         return slug, []
@@ -499,7 +499,7 @@ def fetch_company_jobs_workdaysite(slug):
             # Jitter between pages (critical)
             time.sleep(random.uniform(0.8, 1.8))
 
-        return slug, normalized
+        return company, normalized
 
     except Exception:
         return slug, []
@@ -623,7 +623,7 @@ def fetch_company_jobs_generic(slug):
                 }
             )
 
-        return slug, normalized
+        return company, normalized
 
     except Exception:
         return slug, []
@@ -720,7 +720,7 @@ def fetch_company_jobs_oracle(slug):
                 }
             )
             
-        return slug, normalized
+        return company, normalized
     
     except:
         return slug, []
