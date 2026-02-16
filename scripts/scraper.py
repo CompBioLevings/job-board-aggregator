@@ -1,3 +1,4 @@
+from urllib import response
 import requests
 import json
 import random
@@ -24,6 +25,8 @@ BAMBOOHR_FILE = os.path.join(ROOT_DIR, "data", "bamboohr_companies.json")
 WORKDAY_FILE = os.path.join(ROOT_DIR, "data", "workday_companies.json")
 WORKDAYSITE_FILE = os.path.join(ROOT_DIR, "data", "workdaysite_companies.json")
 LEVER_FILE = os.path.join(ROOT_DIR, "data", "lever_companies.json")
+ORACLE_FILE = os.path.join(ROOT_DIR, "data", "oracle_companies.json")
+MISC_FILE = os.path.join(ROOT_DIR, "data", "misc_companies.json")
 
 OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -512,17 +515,23 @@ def fetch_company_jobs_generic(slug):
     - Returns (slug, normalized_jobs) to match other fetchers.
     """
     try:
+        parts = slug.split("|")
+        if len(parts) != 2:
+            return slug, []
+        
+        company, url_slug = parts
+        
         # Accept full URLs or build a URL from slug
-        if isinstance(slug, str) and slug.startswith("http"):
-            url = slug
+        if isinstance(url_slug, str) and url_slug.startswith("http"):
+            url = url_slug
         else:
-            url = f"https://{slug}"
+            url = f"https://{url_slug}"
 
         headers = {
             "User-Agent": random.choice(USER_AGENTS),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
-
+        
         resp = requests.get(url, headers=headers, timeout=30)
         if resp.status_code != 200:
             return slug, []
@@ -602,8 +611,8 @@ def fetch_company_jobs_generic(slug):
 
             normalized.append(
                 {
-                    "company": urlparse(url).netloc,
-                    "company_slug": slug,
+                    "company": company,
+                    "company_slug": url_slug,
                     "title": title,
                     "location": loc,
                     "url": full_url,
@@ -617,6 +626,103 @@ def fetch_company_jobs_generic(slug):
         return slug, normalized
 
     except Exception:
+        return slug, []
+    
+
+def fetch_company_jobs_oracle(slug):
+    """
+    Oracle scraper for simple career pages that serve HTML job listings.
+
+    - `slug` may be a full URL (preferred) or a hostname/path fragment.
+    - Uses heuristic HTML parsing to find anchors that look like job links and
+      attempts to extract title + location.
+    - Returns (slug, normalized_jobs) to match other fetchers.
+    """
+    try:
+        # slug = "myriad|https://ekgn.fa.us6.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX2001/jobs"
+        # slug = "myriad|https://ekgn.fa.us6.oraclecloud.com/fscmUI/faces"
+        # slug = "myriad|https://ekgn.fa.us6.oraclecloud.com/hcmRestApi/CandidateExperience/en/sites/CX_2001/jobs?q=*&limit=200&offset=0"
+        # slug = "myriad|CX_2001|https://ekgn.fa.us6.oraclecloud.com/hcmRestApi/resources/11.13.18.05/recruitingCEJobRequisitions|https://ekgn.fa.us6.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2001/jobs"
+        
+        parts = slug.split("|")
+        if len(parts) != 4:
+            return slug, []
+        
+        company, siteNumber, url_slug, base_url = parts
+        
+        # Accept full URLs or build a URL from slug
+        if isinstance(url_slug, str) and url_slug.startswith("http"):
+            url = url_slug
+        else:
+            url = f"https://{url_slug}"
+
+        headers = {
+            "User-Agent": random.choice(USER_AGENTS),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        }
+
+        site_params = {
+            'onlyData': 'true',
+            'expand': 'all',
+            'finder': f'findReqs;siteNumber={siteNumber}',  # Site filter
+            'limit': 200,
+            'offset': 0
+        }
+        
+        resp = requests.get(url, headers=headers, params = site_params, timeout=30)
+        if resp.status_code != 200:
+            return slug, []
+        
+        # Parse text from API resonse
+        # html = resp.text
+        # data = json.loads(html)
+        # jobs = data['items'][0]['requisitionList']
+
+        # # Parse each job
+        # job_list = []
+        # for job in jobs:
+        #     job_info = {
+        #         'title': job['Title'],
+        #         'loc': job['PrimaryLocation'],
+        #         'full_url': f"{base_url}/{job['Id']}",
+        #         'updated_at': job['PostedDate']
+        #     }
+        #     job_list.append(job_info)
+
+        data = resp.json()
+        jobs = data['items'][0].get("requisitionList", [])
+        try:
+            total = len(jobs)
+        except:
+            total = 0
+        
+        normalized = []
+        for job in jobs:
+            job_id = job.get("Id", "")
+            # Get corrected date
+            posted_on = job.get("PostedDate", None)
+            posted_on_parsed = parse_relative_date(posted_on)
+            # Get location and filter
+            location = job.get("PrimaryLocation", "Not specified")
+            if not is_valid_location(location):
+                continue
+            normalized.append(
+                {
+                    "company": company,
+                    "company_slug": url_slug,
+                    "title": job.get("Title"),
+                    "location": location[:50],
+                    "url": f"{base_url}/preview/{job_id}",
+                    "updated_at": posted_on_parsed,
+                    "is_recruiter": is_recruiter_company(company),
+                    "ats": "WorkdaySite",
+                    **get_job_metadata()
+                }
+            )
+            
+        return slug, normalized
+    
+    except:
         return slug, []
 
 def fetch_all_jobs(companies, fetcher, platform="ATS"):
@@ -1060,6 +1166,8 @@ def main():
     lever_companies = load_companies(LEVER_FILE)
     workday_companies = load_companies(WORKDAY_FILE)
     workdaysite_companies = load_companies(WORKDAYSITE_FILE)
+    oracle_companies = load_companies(ORACLE_FILE)
+    misc_companies = load_companies(MISC_FILE)
     
     if (
         not greenhouse_companies
@@ -1068,6 +1176,8 @@ def main():
         and not lever_companies
         and not workday_companies
         and not workdaysite_companies
+        and not oracle_companies
+        and not misc_companies
     ):
         print("Exiting - no companies loaded!")
         return
@@ -1084,6 +1194,10 @@ def main():
     active_lever, jobs_lever = fetch_all_jobs(lever_companies, fetch_company_jobs_lever, "LEVER")
 
     active_ashby, jobs_ashby = fetch_all_jobs(ashby_companies, fetch_company_jobs_ashby, "ASHBY")
+    
+    active_oracle, jobs_oracle = fetch_all_jobs(oracle_companies, fetch_company_jobs_oracle, "ORACLE")
+    
+    active_misc, jobs_misc = fetch_all_jobs(misc_companies, fetch_company_jobs_generic, "MISC")
 
     # Combine results
     all_companies = (
@@ -1093,6 +1207,8 @@ def main():
         | bamboohr_companies
         | lever_companies
         | ashby_companies
+        | oracle_companies
+        | misc_companies
     )
     all_active_companies = {
         **active_greenhouse,
@@ -1100,9 +1216,11 @@ def main():
         **active_workdaysite,
         **active_bamboohy,
         **active_lever,
-        **active_ashby
+        **active_ashby,
+        **active_oracle,
+        **active_misc,
     }
-    all_jobs_OG = jobs_greenhouse + jobs_ashby + jobs_bamboohr + jobs_lever + jobs_workday + jobs_workdaysite
+    all_jobs_OG = jobs_greenhouse + jobs_ashby + jobs_bamboohr + jobs_lever + jobs_workday + jobs_workdaysite + jobs_oracle + jobs_misc
     all_jobs = []
     
     # Filter all_jobs to include only jobs from the last 30 days
