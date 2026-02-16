@@ -449,7 +449,7 @@ class JobBoardApp {
         document.getElementById('filter-status').value = '';
         document.getElementById('filter-hide-recruiters').checked = true;
         document.getElementById('filter-remote-only').checked = false;
-        document.getElementById('filter-hide-applied').checked = false;
+        document.getElementById('filter-hide-applied').checked = true;
 
         this.filterState = { title: '', company: '', location: '', remoteOnly: false, status: '' };
         this.filteredJobs = [...this.allJobs];
