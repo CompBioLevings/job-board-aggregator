@@ -77,10 +77,13 @@ class JobBoardApp {
                         'greenhouse': 'success',
                         'lever': 'primary',
                         'workday': 'warning',
+                        'workdaysite': 'warning',
                         'ashby': 'info',
                         'icms': 'secondary',
+                        'generic': 'secondary',
                         'bamboohr': 'danger',
                         'workable': 'dark',
+                        'oracle': 'info',
                         'unknown': 'primary'
                     }
                     const color = colors[ats.toLowerCase()] || 'light';

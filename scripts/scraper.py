@@ -485,7 +485,7 @@ def fetch_company_jobs_workdaysite(slug):
                         "url": f"{career_url}{job_path}",
                         "updated_at": posted_on_parsed,
                         "is_recruiter": is_recruiter_company(company),
-                        "ats": "WorkdaySite",
+                        "ats": "Workdaysite",
                         **get_job_metadata()
                     }
                 )
@@ -715,7 +715,7 @@ def fetch_company_jobs_oracle(slug):
                     "url": f"{base_url}/preview/{job_id}",
                     "updated_at": posted_on_parsed,
                     "is_recruiter": is_recruiter_company(company),
-                    "ats": "WorkdaySite",
+                    "ats": "Oracle",
                     **get_job_metadata()
                 }
             )
@@ -1137,7 +1137,7 @@ def save_results(all_companies, active_companies, all_jobs):
         "total_jobs": len(all_jobs),
         "recruiter_jobs": recruiter_jobs,
         "source_type": SOURCE_TYPE,
-        "platforms": "greenhouse_api, ashby_api, bamboohr_api, lever_api, workday_api, workdaysite_api",
+        "platforms": "greenhouse_api, ashby_api, bamboohr_api, lever_api, workday_api, workdaysite_api, oracle_api, generic_html_scraper",
     }
 
     metadata_file = os.path.join(OUTPUT_DIR, "metadata.json")
