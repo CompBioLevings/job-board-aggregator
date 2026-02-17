@@ -1,7 +1,7 @@
 #!/usr/bin/bash -l
 
 # Script to automate the process of running the job aggregator
-conda activate textscrape
+conda activate jobagg
 sleep 2
 python3 scripts/scraper.py --source manual
 sleep 2
