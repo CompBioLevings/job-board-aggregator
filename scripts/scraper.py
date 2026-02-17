@@ -560,6 +560,18 @@ def fetch_company_jobs_generic(slug):
                 continue
             seen.add(full_url)
 
+            # Filter out URLs that are just the base career page URL
+            # Parse both URLs to compare them
+            parsed_full = urlparse(full_url)
+            parsed_base = urlparse(url)
+            
+            # Skip if the job URL is essentially the same as the career page
+            # (same scheme, netloc, and path, ignoring query/fragment)
+            if (parsed_full.scheme == parsed_base.scheme and
+                parsed_full.netloc == parsed_base.netloc and
+                parsed_full.path.rstrip('/') == parsed_base.path.rstrip('/')):
+                continue
+
             # Try to find a nearby location string in the HTML around this href.
             # For each candidate we extract, validate it with `is_valid_location`.
             loc = None
@@ -639,11 +651,6 @@ def fetch_company_jobs_oracle(slug):
     - Returns (slug, normalized_jobs) to match other fetchers.
     """
     try:
-        # slug = "myriad|https://ekgn.fa.us6.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX2001/jobs"
-        # slug = "myriad|https://ekgn.fa.us6.oraclecloud.com/fscmUI/faces"
-        # slug = "myriad|https://ekgn.fa.us6.oraclecloud.com/hcmRestApi/CandidateExperience/en/sites/CX_2001/jobs?q=*&limit=200&offset=0"
-        # slug = "myriad|CX_2001|https://ekgn.fa.us6.oraclecloud.com/hcmRestApi/resources/11.13.18.05/recruitingCEJobRequisitions|https://ekgn.fa.us6.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2001/jobs"
-        
         parts = slug.split("|")
         if len(parts) != 4:
             return slug, []
@@ -674,21 +681,6 @@ def fetch_company_jobs_oracle(slug):
             return slug, []
         
         # Parse text from API resonse
-        # html = resp.text
-        # data = json.loads(html)
-        # jobs = data['items'][0]['requisitionList']
-
-        # # Parse each job
-        # job_list = []
-        # for job in jobs:
-        #     job_info = {
-        #         'title': job['Title'],
-        #         'loc': job['PrimaryLocation'],
-        #         'full_url': f"{base_url}/{job['Id']}",
-        #         'updated_at': job['PostedDate']
-        #     }
-        #     job_list.append(job_info)
-
         data = resp.json()
         jobs = data['items'][0].get("requisitionList", [])
         try:
