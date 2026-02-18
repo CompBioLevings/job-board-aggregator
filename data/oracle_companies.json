@@ -1,4 +1,5 @@
 [
     "mayo|Mayo-US|https://fa-euwp-saasfaprod1.fa.ocs.oraclecloud.com/hcmRestApi/resources/11.13.18.05/recruitingCEJobRequisitions|https://fa-euwp-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/Mayo-US/jobs",
-    "myriad|CX_2001|https://ekgn.fa.us6.oraclecloud.com/hcmRestApi/resources/11.13.18.05/recruitingCEJobRequisitions|https://ekgn.fa.us6.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2001/jobs"
+    "myriad|CX_2001|https://ekgn.fa.us6.oraclecloud.com/hcmRestApi/resources/11.13.18.05/recruitingCEJobRequisitions|https://ekgn.fa.us6.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2001/jobs",
+    "dtuhealth|CX_2001|https://efzu.fa.em2.oraclecloud.com/hcmRestApi/resources/11.13.18.05/recruitingCEJobRequisitions|https://efzu.fa.em2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2001/jobs"
 ]
