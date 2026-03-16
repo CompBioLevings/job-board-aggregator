@@ -199,7 +199,7 @@ def fetch_company_jobs_ashby(slug):
                             "title": job.get("title", ""),
                             "location": location,
                             "updated_at": None,
-                            "url": f"https://jobs.ashbyhq.com/{slug}/jobs/{job.get('id')}",
+                            "url": f"https://jobs.ashbyhq.com/{slug}/{job.get('id')}",
                             "is_recruiter": is_recruiter_company(slug),
                             "ats": "Ashby",
                             **get_job_metadata()
