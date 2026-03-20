@@ -50,8 +50,11 @@ scripts/output/
 !data/ashby_companies.json
 !data/bamboohr_companies.json
 !data/workday_companies.json
+!data/workdaysite_companies.json
 !data/lever_companies.json
-!data/metadata.json
+!data/misc_companies.json
+!data/oracle_companies.json
+!data/smartrecruiters_companies.json
 
 # Allow gzip files in data/ only
 !data/*.gz
