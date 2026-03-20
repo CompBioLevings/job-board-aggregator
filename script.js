@@ -84,6 +84,7 @@ class JobBoardApp {
                         'bamboohr': 'danger',
                         'workable': 'dark',
                         'oracle': 'info',
+                        'smartrecruiters': 'danger',
                         'unknown': 'primary'
                     }
                     const color = colors[ats.toLowerCase()] || 'light';

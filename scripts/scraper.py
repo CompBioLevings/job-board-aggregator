@@ -27,6 +27,7 @@ WORKDAYSITE_FILE = os.path.join(ROOT_DIR, "data", "workdaysite_companies.json")
 LEVER_FILE = os.path.join(ROOT_DIR, "data", "lever_companies.json")
 ORACLE_FILE = os.path.join(ROOT_DIR, "data", "oracle_companies.json")
 MISC_FILE = os.path.join(ROOT_DIR, "data", "misc_companies.json")
+SMARTRECRUITERS_FILE = os.path.join(ROOT_DIR, "data", "smartrecruiters_companies.json")
 
 OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -639,7 +640,97 @@ def fetch_company_jobs_generic(slug):
 
     except Exception:
         return slug, []
-    
+
+
+def fetch_company_jobs_smartrecruiters(slug):
+    """
+    Fetch jobs from the SmartRecruiters public API.
+
+    slug: company identifier as used on SmartRecruiters (e.g. "LeoPharma").
+    API endpoint: GET https://api.smartrecruiters.com/v1/companies/{slug}/postings
+    Supports pagination via offset/limit (max 100 per page).
+    """
+    try:
+        base_url = f"https://api.smartrecruiters.com/v1/companies/{slug}/postings"
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": random.choice(USER_AGENTS),
+        }
+
+        normalized = []
+        offset = 0
+        limit = 100
+
+        while True:
+            params = {"offset": offset, "limit": limit}
+            response = requests.get(base_url, headers=headers, params=params, timeout=30)
+
+            if response.status_code != 200:
+                break
+
+            data = response.json()
+            jobs = data.get("content", [])
+            total = data.get("totalFound", 0)
+
+            if not jobs:
+                break
+
+            for job in jobs:
+                loc_obj = job.get("location", {})
+                city = loc_obj.get("city") or ""
+                region = loc_obj.get("region") or ""
+                country = loc_obj.get("country") or ""
+                remote = loc_obj.get("remote", False)
+
+                if remote:
+                    location = f"Remote, {country}".strip(", ")
+                elif city and region:
+                    location = f"{city}, {region}"
+                elif city and country:
+                    location = f"{city}, {country}"
+                elif region and country:
+                    location = f"{region}, {country}"
+                elif country:
+                    location = country
+                else:
+                    location = "Not specified"
+
+                if not is_valid_location(location):
+                    continue
+
+                posted_on = job.get("releasedDate")
+                posted_on_parsed = parse_relative_date(posted_on) if posted_on else None
+
+                dept = job.get("department") or {}
+                dept_name = dept.get("label") or ""
+
+                job_id = job.get("id", "")
+                job_ref = job.get("ref") or f"https://api.smartrecruiters.com/v1/companies/{slug}/postings/{job_id}"
+
+                normalized.append(
+                    {
+                        "company": slug,
+                        "company_slug": slug,
+                        "title": job.get("name", ""),
+                        "location": location[:50],
+                        "url": job_ref,
+                        "updated_at": posted_on_parsed,
+                        "departments": [dept_name] if dept_name else [],
+                        "is_recruiter": is_recruiter_company(slug),
+                        "ats": "SmartRecruiters",
+                        **get_job_metadata(),
+                    }
+                )
+
+            offset += limit
+            if offset >= total:
+                break
+
+        return slug, normalized
+
+    except Exception:
+        return slug, []
+
 
 def fetch_company_jobs_oracle(slug):
     """
@@ -1129,7 +1220,7 @@ def save_results(all_companies, active_companies, all_jobs):
         "total_jobs": len(all_jobs),
         "recruiter_jobs": recruiter_jobs,
         "source_type": SOURCE_TYPE,
-        "platforms": "greenhouse_api, ashby_api, bamboohr_api, lever_api, workday_api, workdaysite_api, oracle_api, generic_html_scraper",
+        "platforms": "greenhouse_api, ashby_api, bamboohr_api, lever_api, workday_api, workdaysite_api, oracle_api, smartrecruiters_api, generic_html_scraper",
     }
 
     metadata_file = os.path.join(OUTPUT_DIR, "metadata.json")
@@ -1160,6 +1251,7 @@ def main():
     workdaysite_companies = load_companies(WORKDAYSITE_FILE)
     oracle_companies = load_companies(ORACLE_FILE)
     misc_companies = load_companies(MISC_FILE)
+    smartrecruiters_companies = load_companies(SMARTRECRUITERS_FILE)
     
     if (
         not greenhouse_companies
@@ -1170,6 +1262,7 @@ def main():
         and not workdaysite_companies
         and not oracle_companies
         and not misc_companies
+        and not smartrecruiters_companies
     ):
         print("Exiting - no companies loaded!")
         return
@@ -1191,6 +1284,8 @@ def main():
     
     active_misc, jobs_misc = fetch_all_jobs(misc_companies, fetch_company_jobs_generic, "MISC")
 
+    active_smartrecruiters, jobs_smartrecruiters = fetch_all_jobs(smartrecruiters_companies, fetch_company_jobs_smartrecruiters, "SMARTRECRUITERS")
+
     # Combine results
     all_companies = (
         greenhouse_companies
@@ -1201,6 +1296,7 @@ def main():
         | ashby_companies
         | oracle_companies
         | misc_companies
+        | smartrecruiters_companies
     )
     all_active_companies = {
         **active_greenhouse,
@@ -1211,8 +1307,9 @@ def main():
         **active_ashby,
         **active_oracle,
         **active_misc,
+        **active_smartrecruiters,
     }
-    all_jobs_OG = jobs_greenhouse + jobs_ashby + jobs_bamboohr + jobs_lever + jobs_workday + jobs_workdaysite + jobs_oracle + jobs_misc
+    all_jobs_OG = jobs_greenhouse + jobs_ashby + jobs_bamboohr + jobs_lever + jobs_workday + jobs_workdaysite + jobs_oracle + jobs_misc + jobs_smartrecruiters
     all_jobs = []
     
     # Filter all_jobs to include only jobs from the last 30 days
