@@ -85,6 +85,7 @@ class JobBoardApp {
                         'workable': 'dark',
                         'oracle': 'info',
                         'smartrecruiters': 'danger',
+                        'ultipro': 'success',
                         'unknown': 'primary'
                     }
                     const color = colors[ats.toLowerCase()] || 'light';
