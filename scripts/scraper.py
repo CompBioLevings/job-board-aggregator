@@ -28,6 +28,7 @@ LEVER_FILE = os.path.join(ROOT_DIR, "data", "lever_companies.json")
 ORACLE_FILE = os.path.join(ROOT_DIR, "data", "oracle_companies.json")
 MISC_FILE = os.path.join(ROOT_DIR, "data", "misc_companies.json")
 SMARTRECRUITERS_FILE = os.path.join(ROOT_DIR, "data", "smartrecruiters_companies.json")
+ULTIPRO_FILE = os.path.join(ROOT_DIR, "data", "ultipro_companies.json")
 
 OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -808,6 +809,110 @@ def fetch_company_jobs_oracle(slug):
     except:
         return slug, []
 
+def fetch_company_jobs_ultipro(slug):
+    """
+    UltiPro/UKG Pro job board scraper.
+
+    slug format: "company|recruiting2.ultipro.com/{CompanyCode}/JobBoard/{guid}/"
+    API: POST {base_url}JobBoardView/LoadSearchResults with JSON pagination body.
+    Job URL: {base_url}OpportunityDetail?opportunityId={Id}
+    Location: Locations[0].LocalizedName
+    """
+    try:
+        parts = slug.split("|")
+        if len(parts) != 2:
+            return slug, []
+
+        company, url_slug = parts
+
+        base_url = url_slug if url_slug.startswith("http") else f"https://{url_slug}"
+        base_url = base_url.rstrip("/") + "/"
+        api_url = f"{base_url}JobBoardView/LoadSearchResults"
+
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": random.choice(USER_AGENTS),
+            "Referer": base_url,
+            "Origin": "https://recruiting2.ultipro.com",
+            "X-Requested-With": "XMLHttpRequest",
+        }
+
+        normalized = []
+        skip = 0
+        top = 20
+        observed_total = None
+
+        while True:
+            payload = {
+                "opportunitySearch": {
+                    "Top": top,
+                    "Skip": skip,
+                    "QueryString": "",
+                    "OrderBy": [
+                        {
+                            "Value": "postedDateDesc",
+                            "PropertyName": "PostedDate",
+                            "Direction": "desc",
+                        }
+                    ],
+                }
+            }
+
+            response = requests.post(api_url, json=payload, headers=headers, timeout=30)
+
+            if response.status_code != 200:
+                break
+
+            data = response.json()
+            jobs = data.get("opportunities", [])
+            total = data.get("totalCount", 0)
+
+            if observed_total is None:
+                observed_total = total
+
+            if not jobs:
+                break
+
+            for job in jobs:
+                locations = job.get("Locations") or []
+                location = locations[0].get("LocalizedName") if locations else "Not specified"
+                location = location or "Not specified"
+                if not is_valid_location(location):
+                    continue
+
+                posted_on = job.get("PostedDate")
+                posted_on_parsed = parse_relative_date(posted_on) if posted_on else None
+
+                job_id = job.get("Id", "")
+                job_url = f"{base_url}OpportunityDetail?opportunityId={job_id}"
+
+                normalized.append(
+                    {
+                        "company": company,
+                        "company_slug": url_slug,
+                        "title": job.get("Title", ""),
+                        "location": location[:50],
+                        "url": job_url,
+                        "updated_at": posted_on_parsed,
+                        "is_recruiter": is_recruiter_company(company),
+                        "ats": "UltiPro",
+                        **get_job_metadata(),
+                    }
+                )
+
+            skip += top
+            if skip >= (observed_total or 0):
+                break
+
+            time.sleep(random.uniform(0.5, 1.5))
+
+        return company, normalized
+
+    except Exception:
+        return slug, []
+
+
 def fetch_all_jobs(companies, fetcher, platform="ATS"):
     """Fetch jobs from all companies in parallel."""
     print("=" * 80)
@@ -1220,7 +1325,7 @@ def save_results(all_companies, active_companies, all_jobs):
         "total_jobs": len(all_jobs),
         "recruiter_jobs": recruiter_jobs,
         "source_type": SOURCE_TYPE,
-        "platforms": "greenhouse_api, ashby_api, bamboohr_api, lever_api, workday_api, workdaysite_api, oracle_api, smartrecruiters_api, generic_html_scraper",
+        "platforms": "greenhouse_api, ashby_api, bamboohr_api, lever_api, workday_api, workdaysite_api, oracle_api, smartrecruiters_api, ultipro_api, generic_html_scraper",
     }
 
     metadata_file = os.path.join(OUTPUT_DIR, "metadata.json")
@@ -1252,7 +1357,8 @@ def main():
     oracle_companies = load_companies(ORACLE_FILE)
     misc_companies = load_companies(MISC_FILE)
     smartrecruiters_companies = load_companies(SMARTRECRUITERS_FILE)
-    
+    ultipro_companies = load_companies(ULTIPRO_FILE)
+
     if (
         not greenhouse_companies
         and not ashby_companies
@@ -1263,6 +1369,7 @@ def main():
         and not oracle_companies
         and not misc_companies
         and not smartrecruiters_companies
+        and not ultipro_companies
     ):
         print("Exiting - no companies loaded!")
         return
@@ -1286,6 +1393,8 @@ def main():
 
     active_smartrecruiters, jobs_smartrecruiters = fetch_all_jobs(smartrecruiters_companies, fetch_company_jobs_smartrecruiters, "SMARTRECRUITERS")
 
+    active_ultipro, jobs_ultipro = fetch_all_jobs(ultipro_companies, fetch_company_jobs_ultipro, "ULTIPRO")
+
     # Combine results
     all_companies = (
         greenhouse_companies
@@ -1297,6 +1406,7 @@ def main():
         | oracle_companies
         | misc_companies
         | smartrecruiters_companies
+        | ultipro_companies
     )
     all_active_companies = {
         **active_greenhouse,
@@ -1308,8 +1418,9 @@ def main():
         **active_oracle,
         **active_misc,
         **active_smartrecruiters,
+        **active_ultipro,
     }
-    all_jobs_OG = jobs_greenhouse + jobs_ashby + jobs_bamboohr + jobs_lever + jobs_workday + jobs_workdaysite + jobs_oracle + jobs_misc + jobs_smartrecruiters
+    all_jobs_OG = jobs_greenhouse + jobs_ashby + jobs_bamboohr + jobs_lever + jobs_workday + jobs_workdaysite + jobs_oracle + jobs_misc + jobs_smartrecruiters + jobs_ultipro
     all_jobs = []
     
     # Filter all_jobs to include only jobs from the last 30 days
