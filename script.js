@@ -301,6 +301,9 @@ class JobBoardApp {
         // Export saved/applied jobs to TSV
         document.getElementById('export-tracked').addEventListener('click', () => this.exportTrackedJobs());
 
+        // Export all tracked (saved/applied/ignored) URLs as JSON, for merge_data.py
+        document.getElementById('export-tracked-urls').addEventListener('click', () => this.exportTrackedUrlsJson());
+
         // Status dropdown changes (delegated)
         document.addEventListener('change', (e) => {
             if (e.target.classList.contains('status-dropdown')) {
@@ -814,6 +817,30 @@ class JobBoardApp {
         document.body.removeChild(a);
 
         this.showToast(`Exported ${rows.length} job(s) to TSV.`, 'success');
+    }
+
+    // Exports every tracked URL (saved/applied/ignored) as JSON, regardless of
+    // whether it still matches a job in the current dataset. Save the downloaded
+    // file as data/tracked_urls.json so scripts/merge_data.py can protect these
+    // jobs from the 30-day age cleanup.
+    exportTrackedUrlsJson() {
+        const apps = this.loadApplicationStatus();
+        const count = Object.keys(apps).length;
+
+        if (count === 0) {
+            this.showToast('No tracked jobs to export.', 'warning');
+            return;
+        }
+
+        const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(apps, null, 2));
+        const a = document.createElement('a');
+        a.href = dataUri;
+        a.download = 'tracked_urls.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        this.showToast(`Exported ${count} tracked URL(s). Save as data/tracked_urls.json.`, 'success');
     }
 
     // ============================================================

@@ -21,6 +21,17 @@ def merge_job_data():
             existing_jobs = json.load(f)
         print(f"Existing data: {len(existing_jobs):,} jobs")
 
+    # Load tracked job URLs (any status: saved/applied/ignored) exported from the
+    # web UI's "Export Tracked URLs (JSON)" button. Tracked jobs are kept regardless
+    # of age, since a job that's disappeared from the live listing shouldn't vanish
+    # from someone's tracking just because it's more than 30 days old.
+    tracked_urls = set()
+    tracked_path = Path("data/tracked_urls.json")
+    if tracked_path.exists():
+        with open(tracked_path, "r", encoding="utf-8") as f:
+            tracked_urls = set(json.load(f).keys())
+        print(f"Loaded {len(tracked_urls):,} tracked (saved/applied/ignored) URLs")
+
     # Merge by URL
     merged = {}
     stale_count = 0
@@ -31,11 +42,15 @@ def merge_job_data():
         if not url:
             continue
 
+        if url in tracked_urls:
+            merged[url] = job
+            continue
+
         # Keep jobs scraped within last 30 days
         scraped = job.get("scraped_at")
         if scraped:
             try:
-                scraped_date = datetime.fromisoformat(scraped.replace("Z", ""))
+                scraped_date = datetime.fromisoformat(scraped.replace("Z", "+00:00"))
                 now = datetime.now(timezone.utc)
                 age_days = (now - scraped_date).days
 
@@ -43,15 +58,17 @@ def merge_job_data():
                     merged[url] = job
                 else:
                     stale_count += 1
-            except Exception:
-                # If date parsing fails, keep the job
+            except Exception as e:
+                # If date parsing fails, keep the job but surface it - a silently
+                # swallowed parse error here previously masked the age filter entirely.
+                print(f"Warning: couldn't parse scraped_at ({scraped!r}) for {url}: {e}")
                 merged[url] = job
         else:
             # No scraped_at field, keep it
             merged[url] = job
 
     if stale_count > 0:
-        print(f"Dropped {stale_count:,} stale jobs (>30 days old)")
+        print(f"Dropped {stale_count:,} stale jobs (>30 days old, untracked)")
 
     # Add/update with new scrape (always wins on duplicates)
     for job in new_jobs:
