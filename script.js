@@ -298,6 +298,9 @@ class JobBoardApp {
         document.getElementById('process-batch').addEventListener('click', () => this.handleBatch());
         document.getElementById('process-fab').addEventListener('click', () => this.handleBatch());
 
+        // Export saved/applied jobs to TSV
+        document.getElementById('export-tracked').addEventListener('click', () => this.exportTrackedJobs());
+
         // Status dropdown changes (delegated)
         document.addEventListener('change', (e) => {
             if (e.target.classList.contains('status-dropdown')) {
@@ -758,6 +761,59 @@ class JobBoardApp {
         delete apps[jobUrl];
         localStorage.setItem('job-applications', JSON.stringify(apps));
         this.render();
+    }
+
+    // ============================================================
+    // EXPORT
+    // ============================================================
+    exportTrackedJobs() {
+        const apps = this.loadApplicationStatus();
+        const includeStatuses = ['saved', 'applied'];
+
+        const rows = this.allJobs
+            .map(job => {
+                const url = job.absolute_url || job.url || '';
+                const entry = apps[url];
+                return (entry && includeStatuses.includes(entry.status)) ? { job, url, entry } : null;
+            })
+            .filter(Boolean);
+
+        if (rows.length === 0) {
+            this.showToast('No saved or applied jobs to export.', 'warning');
+            return;
+        }
+
+        // TSV: tabs/newlines within a field are collapsed to spaces so columns stay aligned
+        const clean = v => String(v ?? '').replace(/[\t\r\n]+/g, ' ').trim();
+
+        const headers = ['Status', 'Company', 'Title', 'Location', 'ATS', 'Job Updated', 'Status Set On', 'URL'];
+        const lines = [headers.join('\t')];
+
+        rows.forEach(({ job, url, entry }) => {
+            lines.push([
+                entry.status,
+                job.company,
+                job.title,
+                job.location,
+                job.ats,
+                job.updated_at,
+                entry.date,
+                url
+            ].map(clean).join('\t'));
+        });
+
+        // Use a data: URI rather than Blob/createObjectURL — some browsers/extensions
+        // (observed in Vivaldi) silently swallow blob: downloads triggered by script
+        // with no console error and no visible warning.
+        const dataUri = 'data:text/tab-separated-values;charset=utf-8,' + encodeURIComponent(lines.join('\n'));
+        const a = document.createElement('a');
+        a.href = dataUri;
+        a.download = `job-tracker-export-${new Date().toISOString().slice(0, 10)}.tsv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        this.showToast(`Exported ${rows.length} job(s) to TSV.`, 'success');
     }
 
     // ============================================================
