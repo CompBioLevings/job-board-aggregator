@@ -36,6 +36,11 @@ conda run -n claude python3 scripts/fetch_job_descriptions.py \
   same command to continue** - already-checked jobs (tracked in
   `saved_job_postings/_status_report.tsv` by URL) are skipped automatically,
   so nothing is re-fetched or duplicated.
+- **One exception:** a job whose `Job Updated` date in the TSV is newer than
+  its last `checked_at` in the report gets fetched again. Postings do get
+  pulled and then re-listed under the same URL, and without this a job written
+  off as INACTIVE months ago would never be looked at again even after it came
+  back. Costs one extra fetch per genuinely-updated posting, not per run.
 - Add `--force` to re-check everything from scratch (e.g. if you want to
   re-verify jobs that were ACTIVE a while ago).
 - Add `--delay 2` to slow down requests further if you want to be extra
@@ -50,13 +55,66 @@ fetched, M already done` with nothing left to fetch.
   company, title, your tag (saved/applied), ACTIVE/INACTIVE/UNKNOWN, notes,
   URL. Scan this first to see what's gone stale.
 - `saved_job_postings/*.md` - one file per **ACTIVE** (or ambiguous
-  UNKNOWN) job, with the full description text. **Inactive jobs deliberately
-  get no file** - just a report row - since there's nothing worth keeping
-  from a "this job no longer exists" page.
+  UNKNOWN) job, holding every capture of that posting. **Inactive jobs
+  deliberately get no file** - just a report row - since there's nothing
+  worth keeping from a "this job no longer exists" page.
+
+### The archive file format
+
+A posting can be pulled and later re-listed under the same URL, so each `.md`
+file is a running archive, not a single snapshot. Captures are stacked
+**newest at the top, oldest at the bottom**, separated by blank lines, and
+each keeps its own frontmatter (`checked_at`, `posting_status`, `notes`):
+
+```
+---
+company: labcorp
+checked_at: 2026-09-01T...      <- most recent capture
+---
+
+Third version of the description.
+
+
+
+---
+company: labcorp
+checked_at: 2026-08-20T...      <- the capture before it
+---
+
+Earlier version of the description.
+```
+
+Nothing is ever overwritten. A re-check whose text is **identical** to the
+capture already at the top is not added again, so the files only ever grow by
+a genuinely different version. (Re-checks fire off the ATS's own "updated"
+date, which frequently moves without the description changing.)
 
 Typical result: most saved/applied jobs from more than ~2 months ago will
 show INACTIVE (postings on Workday, Greenhouse, etc. commonly close or get
 pulled within weeks). That's expected, not a bug.
+
+## Step 4: Report repostings back to Daniel (required)
+
+When a re-check finds that the description changed, the run prints a
+`REPOSTED` marker on that job's line and a `REPOSTINGS (n)` block at the end.
+
+**Claude must not let these pass silently.** After every run, Claude:
+
+1. Tells Daniel which jobs were reposted, by company and title. If there were
+   none, Claude says so in one line rather than staying quiet about it.
+2. Asks whether Daniel wants the newest capture compared against the previous
+   one, and what changed.
+3. Only runs the comparison once Daniel says yes.
+
+For the comparison, read the target file and diff the top capture against the
+one directly below it. Report the substance, not the formatting churn: changed
+title or seniority, location or remote status, compensation range, required
+qualifications added or dropped, and team or reporting changes. Whitespace and
+boilerplate reordering are noise and should not be reported as changes.
+
+A reposting is worth Daniel's attention because it usually means the role was
+re-scoped or re-opened, which can make a previously poor fit worth a fresh
+look, or invalidate a resume already tailored to the old text.
 
 ## How it works (for future maintenance)
 
