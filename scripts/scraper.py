@@ -915,6 +915,10 @@ def fetch_company_jobs_ultipro(slug):
 
 def fetch_all_jobs(companies, fetcher, platform="ATS"):
     """Fetch jobs from all companies in parallel."""
+    if not companies:
+        print(f"Skipping {platform} - no companies loaded\n")
+        return {}, []
+
     print("=" * 80)
     print(f"FETCHING JOBS FROM {len(companies):,} COMPANIES FROM PLATFORM: {platform}")
     print("=" * 80 + "\n")
